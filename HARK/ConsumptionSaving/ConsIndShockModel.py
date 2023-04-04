@@ -2096,8 +2096,12 @@ init_idiosyncratic_shocks = dict(
         "vFuncBool": False,  # Whether to calculate the value function during solution
         # Use cubic spline interpolation when True, linear interpolation when False
         "CubicBool": False,
-        "neutral_measure": False,
         # Use permanent income neutral measure (see Harmenberg 2021) during simulations when True.
+        "neutral_measure": False,
+        # The neutral measure replaces Measure(PermShk) with PermShk^(a) * Measure(PermShk) with
+        # appropriate rescaling. This parameter is `a` in the expression above. The default in
+        # Harmenberg (2021) is 1.0.
+        "neutral_measure_exponent": 1.0,
         # Whether Newborns have transitory shock. The default is False.
         "NewbornTransShk": False,
     }
@@ -2386,6 +2390,8 @@ class IndShockConsumerType(PerfForesightConsumerType):
         # If true Use Harmenberg 2021's Neutral Measure. For more information, see https://econ-ark.org/materials/harmenberg-aggregation?launch
         if not hasattr(self, "neutral_measure"):
             self.neutral_measure = False
+        if not hasattr(self, "neutral_measure_exponent"):
+            self.neutral_measure_exponent = 1.0
 
         if num_pointsM is None:
             m_points = self.mCount
@@ -3399,8 +3405,11 @@ class IndShockConsumerType(PerfForesightConsumerType):
 
         if not hasattr(self, "neutral_measure"):
             self.neutral_measure = False
-
         neutral_measure_list = [self.neutral_measure] * len(PermShkCount_list)
+
+        if not hasattr(self, "neutral_measure_exponent"):
+            self.neutral_measure_exponent = 1.0
+        neutral_exp_list = [self.neutral_measure_exponent] * len(PermShkCount_list)
 
         IncShkDstn = IndexDistribution(
             engine=BufferStockIncShkDstn,
@@ -3410,6 +3419,7 @@ class IndShockConsumerType(PerfForesightConsumerType):
                 "n_approx_Perm": PermShkCount_list,
                 "n_approx_Tran": TranShkCount_list,
                 "neutral_measure": neutral_measure_list,
+                "neutral_exp": neutral_exp_list,
                 "UnempPrb": UnempPrb_list,
                 "IncUnemp": IncUnemp_list,
             },
@@ -3422,6 +3432,7 @@ class IndShockConsumerType(PerfForesightConsumerType):
                 "sigma": PermShkStd,
                 "n_approx": PermShkCount_list,
                 "neutral_measure": neutral_measure_list,
+                "neutral_exp": neutral_exp_list,
             },
         )
 
@@ -3450,6 +3461,8 @@ class LognormPermIncShk(DiscreteDistribution):
         Number of points to use in the discrete approximation.
     neutral_measure : Bool, optional
         Whether to use Hamenberg's permanent-income-neutral measure. The default is False.
+    neutral_exp : float, optional
+        Exponent to use in the permanent-income-neutral measure. The default is 1.0.
     seed : int, optional
         Random seed. The default is 0.
 
@@ -3460,14 +3473,16 @@ class LognormPermIncShk(DiscreteDistribution):
 
     """
 
-    def __init__(self, sigma, n_approx, neutral_measure=False, seed=0):
+    def __init__(self, sigma, n_approx, neutral_measure=False, neutral_exp=1.0, seed=0):
         # Construct an auxiliary discretized normal
         logn_approx = MeanOneLogNormal(sigma).discretize(
             n_approx if sigma > 0.0 else 1, method="equiprobable", tail_N=0
         )
         # Change the pmv if necessary
         if neutral_measure:
-            logn_approx.pmv = (logn_approx.atoms * logn_approx.pmv).flatten()
+            expo_shock = np.power(logn_approx.atoms, neutral_exp)
+            scale_fact = 1/np.dot(expo_shock, logn_approx.pmv)
+            logn_approx.pmv = scale_fact * (expo_shock * logn_approx.pmv).flatten()
 
         super().__init__(pmv=logn_approx.pmv, atoms=logn_approx.atoms, seed=seed)
 
@@ -3535,6 +3550,8 @@ class BufferStockIncShkDstn(DiscreteDistributionLabeled):
         Income shock in the "unemployment" state.
     neutral_measure : Bool, optional
         Whether to use Hamenberg's permanent-income-neutral measure. The default is False.
+    neutral_exp : float, optional
+        Exponent to use in the permanent-income-neutral measure. The default is 1.0.
     seed : int, optional
         Random seed. The default is 0.
 
@@ -3554,10 +3571,11 @@ class BufferStockIncShkDstn(DiscreteDistributionLabeled):
         UnempPrb,
         IncUnemp,
         neutral_measure=False,
+        neutral_exp=1.0,
         seed=0,
     ):
         perm_dstn = LognormPermIncShk(
-            sigma=sigma_Perm, n_approx=n_approx_Perm, neutral_measure=neutral_measure
+            sigma=sigma_Perm, n_approx=n_approx_Perm, neutral_measure=neutral_measure, neutral_exp=neutral_exp
         )
         tran_dstn = MixtureTranIncShk(
             sigma=sigma_Tran,
