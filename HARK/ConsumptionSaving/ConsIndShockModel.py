@@ -3481,7 +3481,7 @@ class LognormPermIncShk(DiscreteDistribution):
         # Change the pmv if necessary
         if neutral_measure:
             expo_shock = np.power(logn_approx.atoms, neutral_exp)
-            scale_fact = 1/np.dot(expo_shock, logn_approx.pmv)
+            scale_fact = 1 / np.dot(expo_shock, logn_approx.pmv)
             logn_approx.pmv = scale_fact * (expo_shock * logn_approx.pmv).flatten()
 
         super().__init__(pmv=logn_approx.pmv, atoms=logn_approx.atoms, seed=seed)
@@ -3575,7 +3575,10 @@ class BufferStockIncShkDstn(DiscreteDistributionLabeled):
         seed=0,
     ):
         perm_dstn = LognormPermIncShk(
-            sigma=sigma_Perm, n_approx=n_approx_Perm, neutral_measure=neutral_measure, neutral_exp=neutral_exp
+            sigma=sigma_Perm,
+            n_approx=n_approx_Perm,
+            neutral_measure=neutral_measure,
+            neutral_exp=neutral_exp,
         )
         tran_dstn = MixtureTranIncShk(
             sigma=sigma_Tran,
