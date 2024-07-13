@@ -2,7 +2,7 @@ import unittest
 
 import numpy as np
 
-from HARK.mat_methods import mass_to_grid
+from HARK.mat_methods import mass_to_grid, transition_mat
 from HARK.utilities import jump_to_grid_1D, jump_to_grid_2D
 
 
@@ -87,3 +87,45 @@ class Test3DMassToGrid(unittest.TestCase):
         self.assertTrue(grid_mass[1, 0, 1] == 1 / 8)
         self.assertTrue(grid_mass[1, 1, 0] == 1 / 8)
         self.assertTrue(grid_mass[1, 1, 1] == (1 / 8 + 1.0))
+
+
+class TestTransMatMultiplication(unittest.TestCase):
+    def setUp(self):
+        # Create dummy 2-gridpoint problems
+
+        # A newborn "distribution"
+        self.newborn_dstn = np.array([0.5, 0.3, 0.2])
+
+        # Infinite horizon transition
+        inf_h_trans = np.array([[0.9, 0.1, 0.0], [0.1, 0.8, 0.1], [0.0, 0.1, 0.9]])
+        self.inf_horizon_mat = transition_mat(
+            living_tmat=inf_h_trans,
+            surv_prob=0.9,
+            newborn_dstn=self.newborn_dstn,
+        )
+
+    def test_post_multiply(self):
+        nrows = self.inf_horizon_mat.grid_len
+        mat = np.random.rand(nrows, 3)
+        res = self.inf_horizon_mat.post_multiply(mat)
+        res2 = np.dot(self.inf_horizon_mat.get_full_tmat(), mat)
+        self.assertTrue(np.allclose(res, res2))
+
+    def test_pre_multiply(self):
+        ncols = self.inf_horizon_mat.grid_len
+        mat = np.random.rand(3, ncols)
+        res = self.inf_horizon_mat.pre_multiply(mat)
+        res2 = np.dot(mat, self.inf_horizon_mat.get_full_tmat())
+        self.assertTrue(np.allclose(res, res2))
+
+    def test_steady_state(self):
+        # Compute using iterative class method
+        ss_iter = self.inf_horizon_mat.find_steady_state_dstn()
+        # Compute eigenvalues and eigenvectors
+        eigvals, eigvecs = np.linalg.eig(self.inf_horizon_mat.get_full_tmat().T)
+        # Find the eigenvector corresponding to the eigenvalue 1
+        ss_eig = eigvecs[:, np.isclose(eigvals, 1.0)]
+        # Normalize the eigenvector
+        ss_eig = ss_eig / ss_eig.sum()
+        # Compare the two
+        self.assertTrue(np.allclose(ss_iter, ss_eig, atol=1e-8))

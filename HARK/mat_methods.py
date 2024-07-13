@@ -255,3 +255,87 @@ def mass_to_grid(
     distr = sum_weights(weights, dims, add_inds)
 
     return distr
+
+
+class transition_mat:
+    def __init__(
+        self,
+        living_tmat: np.ndarray,
+        surv_prob: float,
+        newborn_dstn: np.ndarray,
+    ) -> None:
+        self.living_tmat = living_tmat
+        self.surv_prob = surv_prob
+        self.newborn_dstn = newborn_dstn
+
+        self.grid_len = self.living_tmat.shape[0]
+
+    def get_full_tmat(self):
+        # Transition matrix that incorporates death and newborn distribution
+        full_mat = (
+            self.surv_prob * self.living_tmat
+            + (1 - self.surv_prob) * self.newborn_dstn[np.newaxis, :]
+        )
+
+        return full_mat
+
+    def post_multiply(self, mat):
+        # Check dimension compatibility
+        n_rows = mat.shape[0]
+        if n_rows != self.grid_len:
+            raise Exception(
+                "Matrix has {} rows, but should have {}".format(n_rows, self.grid_len)
+            )
+
+        prod = self.surv_prob * np.dot(self.living_tmat, mat)
+        prod += (1 - self.surv_prob) * np.dot(self.newborn_dstn[np.newaxis, :], mat)
+        return prod
+
+    def pre_multiply(self, mat):
+        # Check dimension compatibility
+        n_cols = mat.shape[1]
+        if n_cols != self.grid_len:
+            raise Exception(
+                "Matrix has {} cols, but should have {}".format(n_cols, self.grid_len)
+            )
+
+        prod = np.dot(
+            mat,
+            self.surv_prob * self.living_tmat
+            + (1 - self.surv_prob) * self.newborn_dstn[np.newaxis, :],
+        )
+
+        return prod
+
+    def iterate_dstn_forward(self, dstn_init: np.ndarray) -> np.ndarray:
+        dstn_final = self.pre_multiply(dstn_init.T).T
+
+        return dstn_final
+
+    def find_steady_state_dstn(
+        self,
+        dstn_init=None,
+        tol=1e-10,
+        max_iter=1000,
+        check_every=10,
+        normalize_every=20,
+    ):
+        if dstn_init is None:
+            # Create an initial distribution that concentrates all mass on the first state
+            dstn_init = dstn = np.zeros((self.grid_len, 1))
+            dstn[0, 0] = 1.0
+
+        # Initialize
+        dstn = dstn_init
+        err = tol + 1
+        i = 0
+        while err > tol and i < max_iter:
+            dstn_new = self.iterate_dstn_forward(dstn)
+            if i % normalize_every == 0:
+                dstn_new /= np.sum(dstn_new)
+            if i % check_every == 0:
+                err = np.max(np.abs(dstn_new - dstn))
+            dstn = dstn_new
+            i += 1
+
+        return dstn
